@@ -97,7 +97,7 @@ for ticker in tickers:
             x=ticker_df["Date"],
             y=ticker_df["rsi"],
             mode="lines",
-            line=go.scatter.Line(color="green"),
+            line=go.scatter.Line(color="purple"),
             showlegend=True,
             name="rsi",
         ),

@@ -1,5 +1,6 @@
 # %%
 import time
+import statistics
 from rich import print
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
@@ -8,126 +9,154 @@ import yfinance as yf
 # import pandas as pd
 import pandas_ta as ta
 
-days = 365
+
+def get_change(current, previous):
+    if current == previous:
+        return 0
+    try:
+        return ((current - previous) / previous) * 100.0
+    except ZeroDivisionError:
+        return float("inf")
+
 
 # read in tickers
-tickers = ["MSFT"]
-try:
-    with open("tickers.txt") as file:
-        tickers = [line.rstrip() for line in file]
-except Exception as ex:
-    print("No tickers found in tickers.txt file :( ", ex)
+tickers = ["AAPL"]
+# try:
+#     with open("tickers.txt") as file:
+#         tickers = [line.rstrip() for line in file]
+# except Exception as ex:
+#     print("No tickers found in tickers.txt file :( ", ex)
 
+
+sma_multiply = 1
 
 for ticker in tickers:
     # download dataframe using pandas_datareader
-    ticker = yf.Ticker(ticker)
-    ticker_df = ticker.history(period="max")
+    ticker_df = yf.download(ticker, period="100y", interval="1wk")
     ticker_df = ticker_df.reset_index()
 
     # STATS
     stochrsi = ta.stochrsi(ticker_df["Close"], length=14)
     ticker_df["stochrsi_k"] = stochrsi["STOCHRSIk_14_14_3_3"]
     ticker_df["stochrsi_d"] = stochrsi["STOCHRSId_14_14_3_3"]
-    ticker_df["rsi"] = ta.rsi(ticker_df["Close"], length=14)
-    ticker_df["sma_14"] = ta.sma(ticker_df["Low"], length=14)
-    ticker_df["sma_50"] = ta.sma(ticker_df["Low"], length=50)
-    ticker_df["sma_200"] = ta.sma(ticker_df["Low"], length=200)
+    ticker_df["rsi"] = ta.rsi(ticker_df["Close"], length=14 * sma_multiply)
+    ticker_df["sma_14"] = ta.sma(ticker_df["Low"], length=14 * sma_multiply)
+    ticker_df["sma_50"] = ta.sma(ticker_df["Low"], length=50 * sma_multiply)
+    ticker_df["sma_200"] = ta.sma(ticker_df["Low"], length=200 * sma_multiply)
 
-    # limit data to x days
-    ticker_df = ticker_df.tail(days).copy()
-
-    # VISUALS
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True)
-
-    fig.add_trace(
-        go.Candlestick(
-            x=ticker_df["Date"],
-            open=ticker_df["Open"],
-            high=ticker_df["High"],
-            low=ticker_df["Low"],
-            close=ticker_df["Close"],
-        ),
-        row=1,
-        col=1,
+    ticker_df["year"] = ticker_df[ticker_df.columns[0]].apply(
+        lambda x: str(x).split("-")[0]
     )
 
-    for sma in [(14, "yellow"), (50, "orange"), (200, "green")]:
+    ticker_df_by_year = ticker_df.groupby("year")
+    yearly_increase = {}
+    for year, year_df in ticker_df_by_year:
+        yearly_increase[year] = get_change(
+            year_df.iloc[-1]["High"], year_df.iloc[0]["Low"]
+        )
+
+    # VISUALS
+    if True:
+        fig = make_subplots(rows=3, cols=1, shared_xaxes=False)
+
         fig.add_trace(
-            go.Scatter(
-                x=ticker_df["Date"],
-                y=ticker_df[f"sma_{sma[0]}"],
-                mode="lines",
-                line=go.scatter.Line(color=sma[1]),
-                showlegend=True,
-                name="sma_14",
+            go.Candlestick(
+                x=ticker_df[ticker_df.columns[0]],
+                open=ticker_df["Open"],
+                high=ticker_df["High"],
+                low=ticker_df["Low"],
+                close=ticker_df["Close"],
             ),
             row=1,
             col=1,
         )
 
-    fig.add_trace(
-        go.Scatter(
-            x=ticker_df["Date"],
-            y=ticker_df["stochrsi_k"],
-            mode="lines",
-            line=go.scatter.Line(color="royalblue"),
-            showlegend=True,
-            name="stoch_rsi_k",
-        ),
-        row=2,
-        col=1,
-    )
+        for sma in [(14, "yellow"), (50, "orange"), (200, "green")]:
+            fig.add_trace(
+                go.Scatter(
+                    x=ticker_df[ticker_df.columns[0]],
+                    y=ticker_df[f"sma_{sma[0]}"],
+                    mode="lines",
+                    line=go.scatter.Line(color=sma[1]),
+                    showlegend=True,
+                    name=f"sma_{sma[0]}",
+                ),
+                row=1,
+                col=1,
+            )
 
-    fig.add_trace(
-        go.Scatter(
-            x=ticker_df["Date"],
-            y=ticker_df["stochrsi_d"],
-            mode="lines",
-            line=go.scatter.Line(color="red"),
-            showlegend=True,
-            name="stoch_rsi_d",
-        ),
-        row=2,
-        col=1,
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=ticker_df["Date"],
-            y=ticker_df["rsi"],
-            mode="lines",
-            line=go.scatter.Line(color="purple"),
-            showlegend=True,
-            name="rsi",
-        ),
-        row=2,
-        col=1,
-    )
-
-    fig.update_xaxes(rangeslider_thickness=0.1)
-
-    stock_title = (
-        f"{ticker.info['exchange'].upper()} - {ticker.info['longName']}"
-    )
-    try:
-        mc = "{:,.2f}".format(ticker.info["marketCap"])
-        stock_title = (
-            f"{stock_title} - marketcap: {mc} {ticker.info['currency']}"
+        fig.add_trace(
+            go.Scatter(
+                x=ticker_df[ticker_df.columns[0]],
+                y=ticker_df["stochrsi_k"],
+                mode="lines",
+                line=go.scatter.Line(color="royalblue"),
+                showlegend=True,
+                name="stoch_rsi_k",
+            ),
+            row=2,
+            col=1,
         )
-    except Exception:
-        pass
 
-    fig.update_layout(
-        title_text=stock_title,
-        xaxis_rangeslider_visible=True,
-        autosize=False,
-        width=1600,
-        height=1000,
-    )
-    fig.show()
+        fig.add_trace(
+            go.Scatter(
+                x=ticker_df[ticker_df.columns[0]],
+                y=ticker_df["stochrsi_d"],
+                mode="lines",
+                line=go.scatter.Line(color="red"),
+                showlegend=True,
+                name="stoch_rsi_d",
+            ),
+            row=2,
+            col=1,
+        )
 
-    # reduce calls to Yahoo api
-    time.sleep(1)
+        fig.add_trace(
+            go.Scatter(
+                x=ticker_df[ticker_df.columns[0]],
+                y=ticker_df["rsi"],
+                mode="lines",
+                line=go.scatter.Line(color="yellow"),
+                showlegend=True,
+                name="rsi",
+            ),
+            row=2,
+            col=1,
+        )
 
+        fig.add_trace(
+            go.Scatter(
+                x=list(yearly_increase.keys()),
+                y=list(yearly_increase.values()),
+                mode="lines",
+                line=go.scatter.Line(color="yellow"),
+                showlegend=True,
+                name="rsi",
+            ),
+            row=3,
+            col=1,
+        )
+
+        start = ticker_df[str(ticker_df.columns[0])].min()
+        end = ticker_df[str(ticker_df.columns[0])].max()
+        yearly_median_increase = round(
+            statistics.median(list(yearly_increase.values())), 2
+        )
+        total_growth = round(
+            get_change(ticker_df.iloc[-1]["High"], ticker_df.iloc[0]["Low"]), 2
+        )
+        stock_title = f"{ticker} ({start} - {end}) - median/year: {yearly_median_increase}% / total {total_growth}% / in {len(list(yearly_increase.keys()))} years"
+
+        fig.update_layout(
+            title_text=stock_title,
+            xaxis_rangeslider_visible=False,
+            autosize=True,
+            width=1550,
+            height=800,
+            template="plotly_dark",
+        )
+        fig.show()
+
+        # reduce calls to Yahoo api
+        time.sleep(1)
 # %%

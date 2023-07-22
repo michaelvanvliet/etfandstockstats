@@ -1,3 +1,5 @@
 .env/
 tickers.txt
 .vscode/settings.json
+result.pdf
+plots/*.pdf

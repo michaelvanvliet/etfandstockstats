@@ -1,13 +1,23 @@
 # %%
+import os
 import time
 import statistics
+import datetime
 from rich import print
 from plotly.subplots import make_subplots
+from glob import glob
+from pypdf import PdfMerger
+
 import plotly.graph_objects as go
 import yfinance as yf
 
+
 # import pandas as pd
 import pandas_ta as ta
+
+currentDateTime = datetime.datetime.now()
+currentdate = currentDateTime.date()
+currentyear = int(currentdate.strftime("%Y"))
 
 
 def get_change(current, previous):
@@ -20,12 +30,12 @@ def get_change(current, previous):
 
 
 # read in tickers
-tickers = ["AAPL"]
-# try:
-#     with open("tickers.txt") as file:
-#         tickers = [line.rstrip() for line in file]
-# except Exception as ex:
-#     print("No tickers found in tickers.txt file :( ", ex)
+try:
+    with open("tickers.txt") as file:
+        tickers = [line.rstrip() for line in file]
+except Exception as ex:
+    print("No tickers found in tickers.txt file :( ", ex)
+# tickers = ["AAPL"]
 
 
 sma_multiply = 1
@@ -44,8 +54,10 @@ for ticker in tickers:
     ticker_df["sma_50"] = ta.sma(ticker_df["Low"], length=50 * sma_multiply)
     ticker_df["sma_200"] = ta.sma(ticker_df["Low"], length=200 * sma_multiply)
 
-    ticker_df["year"] = ticker_df[ticker_df.columns[0]].apply(
-        lambda x: str(x).split("-")[0]
+    ticker_df["year"] = (
+        ticker_df[ticker_df.columns[0]]
+        .apply(lambda x: str(x).split("-")[0])
+        .astype("int")
     )
 
     ticker_df_by_year = ticker_df.groupby("year")
@@ -55,9 +67,31 @@ for ticker in tickers:
             year_df.iloc[-1]["High"], year_df.iloc[0]["Low"]
         )
 
+    years = len(yearly_increase.keys())
+
+    start = ticker_df[str(ticker_df.columns[0])].min()
+    end = ticker_df[str(ticker_df.columns[0])].max()
+    yearly_median_increase = round(
+        statistics.median(list(yearly_increase.values())), 2
+    )
+    total_growth = round(
+        get_change(ticker_df.iloc[-1]["High"], ticker_df.iloc[0]["Low"]), 2
+    )
+
+    yearly_avg_increase = round((total_growth / years), 2)
+
     # VISUALS
     if True:
-        fig = make_subplots(rows=3, cols=1, shared_xaxes=False)
+        # reduce visuals to last 5 years
+        ticker_df = ticker_df[ticker_df["year"] >= (currentyear - 5)].copy()
+        yearly_increase = {
+            k: yearly_increase[k]
+            for k in yearly_increase.keys()
+            if k >= (currentyear - 5)
+        }
+
+        # build figure
+        fig = make_subplots(rows=3, cols=1, shared_xaxes=True)
 
         fig.add_trace(
             go.Candlestick(
@@ -137,26 +171,30 @@ for ticker in tickers:
             col=1,
         )
 
-        start = ticker_df[str(ticker_df.columns[0])].min()
-        end = ticker_df[str(ticker_df.columns[0])].max()
-        yearly_median_increase = round(
-            statistics.median(list(yearly_increase.values())), 2
-        )
-        total_growth = round(
-            get_change(ticker_df.iloc[-1]["High"], ticker_df.iloc[0]["Low"]), 2
-        )
-        stock_title = f"{ticker} ({start} - {end}) - median/year: {yearly_median_increase}% / total {total_growth}% / in {len(list(yearly_increase.keys()))} years"
+        stock_title = f"{ticker} ({start} - {end}) - median/year: {yearly_median_increase}% / avg/year: {yearly_avg_increase}% / total {total_growth}% / in {years} years"
 
         fig.update_layout(
             title_text=stock_title,
             xaxis_rangeslider_visible=False,
             autosize=True,
-            width=1550,
-            height=800,
+            width=1800,
+            height=900,
             template="plotly_dark",
         )
-        fig.show()
+        # fig.show()
+        # fig.write_html(f"plots/{ticker}.html")
+        fig.write_image(f"plots/{ticker}.pdf")
 
         # reduce calls to Yahoo api
         time.sleep(1)
+
+pdfs = glob(os.path.join("plots", "*.pdf"))
+
+merger = PdfMerger()
+
+for pdf in pdfs:
+    merger.append(pdf)
+
+merger.write("result.pdf")
+merger.close()
 # %%
